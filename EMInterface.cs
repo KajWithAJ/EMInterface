@@ -49,7 +49,8 @@ namespace Oxide.Plugins
         #endregion
 
         #region UI Menus        
-        public enum MenuTab { Event, Statistics, Admin }
+        public enum MenuTab { Event, Statistics, Organizer, Admin }
+        public enum OrganizerTab { None, OpenEvent, Selector}
         public enum AdminTab { None, OpenEvent, EditEvent, CreateEvent, DeleteEvent, KickPlayer, Selector }
         public enum StatisticTab { Personal, Global, Leaders }
         public enum SelectionType { Field, Event, Player }
@@ -58,16 +59,25 @@ namespace Oxide.Plugins
 
         public void OpenMenu(BasePlayer player, MenuArgs args)
         {
+            Puts($"DEBUG: In OpenMenu {player} - {args}");
             CuiElementContainer container = UI.Container(UI_MENU, Configuration.Menu.Background.Get, new UI4(0.1f, 0.1f, 0.9f, 0.9f), true);
 
             UI.Label(container, UI_MENU, Message("UI.Title", player.userID), 20, new UI4(0.005f, 0.94f, 0.995f, 1f), TextAnchor.MiddleLeft);
 
             AddMenuButtons(player, container, UI_MENU, args.Menu);
 
+            Puts($"DEBUG: {args.Menu}");
+            Puts($"DEBUG: {MenuTab.Organizer}");
+            Puts($"DEBUG: {MenuTab.Admin}");
+
             switch (args.Menu)
             {
                 case MenuTab.Event:
                     CreateEventDetails(player, container, UI_MENU, args.Page);
+                    break;
+                case MenuTab.Organizer:
+                    if (permission.UserHasPermission(player.UserIDString, EventManager.ORGANIZER_PERMISSION))
+                        CreateOrganizerOptions(player, container, UI_MENU, args);
                     break;
                 case MenuTab.Admin:
                     if (player.IsAdmin || permission.UserHasPermission(player.UserIDString, EventManager.ADMIN_PERMISSION))
@@ -103,6 +113,12 @@ namespace Oxide.Plugins
 
             UI.Button(container, panel, menuTab == MenuTab.Statistics ? Configuration.Menu.Highlight.Get : Configuration.Menu.Button.Get, Message("UI.Menu.Statistics", player.userID), 13, new UI4(xMin, 0.9f, xMin + 0.14f, 0.94f), menuTab == MenuTab.Statistics ? "" : $"emui.statistics {(int)StatisticTab.Personal} {(int)EventStatistics.Statistic.Rank}");
             xMin = GetHorizontalPos(i += 1) + (0.002f * i);
+
+            if (permission.UserHasPermission(player.UserIDString, EventManager.ORGANIZER_PERMISSION))
+            {
+                UI.Button(container, panel, menuTab == MenuTab.Organizer ? Configuration.Menu.Highlight.Get : Configuration.Menu.Button.Get, Message("UI.Menu.Organizer", player.userID), 13, new UI4(xMin, 0.9f, xMin + 0.14f, 0.94f), menuTab == MenuTab.Organizer ? "" : $"emui.event 0 {(int)MenuTab.Organizer}");
+                xMin = GetHorizontalPos(i += 1) + (0.002f * i);
+            }
 
             if (player.IsAdmin || permission.UserHasPermission(player.UserIDString, EventManager.ADMIN_PERMISSION))
             {
@@ -329,6 +345,43 @@ namespace Oxide.Plugins
         #endregion
         #endregion
 
+        #region Organizer Tab
+        private void CreateOrganizerOptions(BasePlayer player, CuiElementContainer container, string panel, MenuArgs args)
+        {
+            UI.Panel(container, UI_MENU, Configuration.Menu.Button.Get, new UI4(0.005f, 0.845f, 0.175f, 0.885f));
+            UI.Panel(container, UI_MENU, Configuration.Menu.Highlight.Get, new UI4(0.005f, 0.841f, 0.175f, 0.844f));
+
+            UI.Panel(container, UI_MENU, Configuration.Menu.Button.Get, new UI4(0.177f, 0.845f, 0.995f, 0.885f));
+            UI.Panel(container, UI_MENU, Configuration.Menu.Highlight.Get, new UI4(0.177f, 0.841f, 0.995f, 0.844f));
+
+            UI.Label(container, UI_MENU, Message("UI.Organizer.Title", player.userID), 13, new UI4(0.01f, 0.845f, 0.175f, 0.885f), TextAnchor.MiddleLeft);
+
+            UI.Panel(container, UI_MENU, Configuration.Menu.Panel.Get, new UI4(0.005f, 0.0075f, 0.175f, 0.836f));
+            UI.Panel(container, UI_MENU, Configuration.Menu.Panel.Get, new UI4(0.177f, 0.0075f, 0.995f, 0.836f));
+
+            int i = 1;
+            float yMin = GetVerticalPos(i, 0.836f);
+
+            if (EventManager.BaseManager == null)
+            {
+                UI.Button(container, UI_MENU, args.Organizer == OrganizerTab.OpenEvent ? Configuration.Menu.Highlight.Get : Configuration.Menu.Button.Get, Message("UI.Admin.Open", player.userID), 12, new UI4(0.01f, yMin, 0.17f, yMin + ELEMENT_HEIGHT), $"emui.eventselector {(int)OrganizerTab.OpenEvent}");
+                yMin = GetVerticalPos(i += 1, 0.836f);
+            }
+
+            switch (args.Organizer)
+            {                
+                case OrganizerTab.OpenEvent:
+                    OpenEventSelector(player, container, UI_MENU, args.Selector, args.Page);                   
+                    break;   
+                case OrganizerTab.Selector:
+                    OpenSelector(player, container, UI_MENU, args.Selector, args.Page);
+                    break;
+                default:
+                    break;
+            }
+        }
+        #endregion
+
         #region Admin Tab
         private void CreateAdminOptions(BasePlayer player, CuiElementContainer container, string panel, MenuArgs args)
         {
@@ -465,9 +518,10 @@ namespace Oxide.Plugins
 
                 if (eventConfig.Plugin.UseScoreLimit)
                     AddInputField(container, panel, i += 1, "Score Limit", "scoreLimit", eventConfig.ScoreLimit);
-
+                
                 AddInputField(container, panel, i += 1, "Minimum Players", "minimumPlayers", eventConfig.MinimumPlayers);
                 AddInputField(container, panel, i += 1, "Maximum Players", "maximumPlayers", eventConfig.MaximumPlayers);
+                AddToggleField(container, panel, i += 1, "Organizer can open", "organizerCanOpen", eventConfig.OrganizerCanOpen);
 
                 List<EventManager.EventParameter> eventParameters = eventConfig.Plugin.AdditionalParameters;
 
@@ -571,8 +625,15 @@ namespace Oxide.Plugins
         {
             UI.Label(container, UI_MENU, args.Title, 13, new UI4(0.182f, 0.845f, 0.99f, 0.885f), TextAnchor.MiddleLeft);
 
+
+
+            var events = (player.IsAdmin || permission.UserHasPermission(player.UserIDString, EventManager.ADMIN_PERMISSION)) 
+                ? EventManager.Instance.Events.events
+                : EventManager.Instance.Events.events.Where(e => e.Value.OrganizerCanOpen);
+
+
             int i = 0;
-            foreach (KeyValuePair<string, EventManager.EventConfig> kvp in EventManager.Instance.Events.events)
+            foreach (KeyValuePair<string, EventManager.EventConfig> kvp in events)
             {
                 UI.Button(container, panel, Configuration.Menu.Button.Get, $"{kvp.Key} <size=8>({kvp.Value.EventType})</size>", 11, GetGridLayout(i, 0.182f, 0.796f, 0.1578f, 0.035f, 5, 20), $"{args.Callback} {CommandSafe(kvp.Key)}");
                 i++;
@@ -954,6 +1015,7 @@ namespace Oxide.Plugins
         {
             public int Page;
             public MenuTab Menu;
+            public OrganizerTab Organizer;
             public AdminTab Admin;
             public StatisticTab Statistic;
             public EventStatistics.Statistic StatisticSort;
@@ -964,6 +1026,7 @@ namespace Oxide.Plugins
                 Page = 0;
                 Menu = menu;
                 Statistic = StatisticTab.Global;
+                Organizer = OrganizerTab.None;
                 Admin = AdminTab.None;
                 StatisticSort = EventStatistics.Statistic.Rank;
                 Selector = default(SelectorArgs);
@@ -974,6 +1037,18 @@ namespace Oxide.Plugins
                 Page = page;
                 Menu = menu;
                 Statistic = StatisticTab.Personal;
+                Organizer = OrganizerTab.None;
+                Admin = AdminTab.None;
+                StatisticSort = EventStatistics.Statistic.Rank;
+                Selector = default(SelectorArgs);
+            }
+
+            public MenuArgs(OrganizerTab organizer)
+            {
+                Page = 0;
+                Menu = MenuTab.Organizer;
+                Statistic = StatisticTab.Personal;
+                Organizer = organizer;
                 Admin = AdminTab.None;
                 StatisticSort = EventStatistics.Statistic.Rank;
                 Selector = default(SelectorArgs);
@@ -984,6 +1059,7 @@ namespace Oxide.Plugins
                 Page = 0;
                 Menu = MenuTab.Admin;
                 Statistic = StatisticTab.Personal;
+                Organizer = OrganizerTab.None;
                 Admin = admin;
                 StatisticSort = EventStatistics.Statistic.Rank;
                 Selector = default(SelectorArgs);
@@ -994,6 +1070,7 @@ namespace Oxide.Plugins
                 Page = page;
                 Menu = MenuTab.Statistics;
                 Statistic = statistic;
+                Organizer = OrganizerTab.None;
                 Admin = AdminTab.None;
                 StatisticSort = sort;
                 Selector = default(SelectorArgs);
@@ -1004,6 +1081,7 @@ namespace Oxide.Plugins
                 Page = page;
                 Selector = selectorArgs;
                 Menu = MenuTab.Admin;
+                Organizer = OrganizerTab.None;
                 Admin = AdminTab.Selector;
                 Statistic = StatisticTab.Personal;
                 StatisticSort = EventStatistics.Statistic.Rank;
@@ -1014,9 +1092,27 @@ namespace Oxide.Plugins
                 Page = page;
                 Selector = selectorArgs;
                 Menu = MenuTab.Admin;
+                Organizer = OrganizerTab.None;
                 Admin = admin;
                 Statistic = StatisticTab.Personal;
                 StatisticSort = EventStatistics.Statistic.Rank;
+            }
+
+            public MenuArgs(SelectorArgs selectorArgs, OrganizerTab organizer, AdminTab admin, int page)
+            {
+                Page = page;
+                Selector = selectorArgs;
+                Menu = OrganizerTab.None != organizer ? MenuTab.Organizer : MenuTab.Admin;
+                Organizer = organizer;
+                Admin = admin;
+                Statistic = StatisticTab.Personal;
+                StatisticSort = EventStatistics.Statistic.Rank;
+            }
+
+            public override string ToString()
+            {
+                return $"Page: {Page}, Menu: {Menu}, Organizer: {Organizer}, Admin: {Admin}, " +
+                    $"Statistic: {Statistic}, StatisticSort: {StatisticSort}, Selector: {Selector}";
             }
         }
 
@@ -1286,6 +1382,13 @@ namespace Oxide.Plugins
                         else eventConfig.TeamConfigB.Color = color;
                         break;
                     }
+                case "organizerCanOpen":
+                    {
+                        if (!TryConvertValue<bool>(value, out bool boolValue))
+                            CreateMenuPopup(player, "You must enter 'True' or 'False'");
+                        else eventConfig.OrganizerCanOpen = boolValue;
+                    }
+                    break;
                 default:
                     List<EventManager.EventParameter> additionalParameters = eventConfig.Plugin?.AdditionalParameters;
                     if (additionalParameters != null)
@@ -1496,13 +1599,26 @@ namespace Oxide.Plugins
                 switch (adminTab)
                 {
                     case AdminTab.OpenEvent:
-                        OpenMenu(player, new MenuArgs(new SelectorArgs("Select an event to open", SelectionType.Event, "emui.openevent"), adminTab, 0));
+                        OpenMenu(player, new MenuArgs(new SelectorArgs("Select an event to open", SelectionType.Event, "emui.openevent"), OrganizerTab.None, adminTab, 0));
                         break;
                     case AdminTab.EditEvent:
-                        OpenMenu(player, new MenuArgs(new SelectorArgs("Select an event to edit", SelectionType.Event, "emui.editevent"), adminTab, 0));
+                        OpenMenu(player, new MenuArgs(new SelectorArgs("Select an event to edit", SelectionType.Event, "emui.editevent"), OrganizerTab.None, adminTab, 0));
                         break;
                     case AdminTab.DeleteEvent:
-                        OpenMenu(player, new MenuArgs(new SelectorArgs("Select an event to delete", SelectionType.Event, "emui.deleteevent"), adminTab, 0));
+                        OpenMenu(player, new MenuArgs(new SelectorArgs("Select an event to delete", SelectionType.Event, "emui.deleteevent"), OrganizerTab.None, adminTab, 0));
+                        break;
+                    default:
+                        break;
+                }
+            }
+            else if (permission.UserHasPermission(player.UserIDString, EventManager.ORGANIZER_PERMISSION))
+            {
+                OrganizerTab organizerTab = (OrganizerTab)arg.GetInt(0);
+
+                switch (organizerTab)
+                {
+                    case OrganizerTab.OpenEvent:
+                        OpenMenu(player, new MenuArgs(new SelectorArgs("Select an event to open", SelectionType.Event, "emui.openevent"), organizerTab, AdminTab.None, 0));
                         break;
                     default:
                         break;
@@ -1517,7 +1633,7 @@ namespace Oxide.Plugins
             if (player == null)
                 return;
 
-            if (player.IsAdmin || permission.UserHasPermission(player.UserIDString, EventManager.ADMIN_PERMISSION))
+            if (player.IsAdmin || permission.UserHasPermission(player.UserIDString, EventManager.ADMIN_PERMISSION) || permission.UserHasPermission(player.UserIDString, EventManager.ORGANIZER_PERMISSION))
             {
                 string eventName = CommandSafe(arg.GetString(0), true);
 
@@ -2038,6 +2154,8 @@ namespace Oxide.Plugins
             ["UI.Reward.Economics"] = "Coins",
             ["UI.Reward.ServerRewards"] = "RP",
 
+            ["UI.Organizer.Title"] = "Organizer Options",
+            
             ["UI.Admin.Title"] = "Admin Options",
             ["UI.Admin.Start"] = "Start Event",
             ["UI.Admin.Close"] = "Close Event",
@@ -2048,6 +2166,7 @@ namespace Oxide.Plugins
             ["UI.Admin.Create"] = "Create Event",
             ["UI.Admin.Delete"] = "Delete Event",
 
+            ["UI.Menu.Organizer"] = "Organizer",
             ["UI.Menu.Admin"] = "Admin",
             ["UI.Menu.Statistics"] = "Statistics",
             ["UI.Menu.Event"] = "Event",
